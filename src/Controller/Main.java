@@ -9,17 +9,28 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Date;
 
-
+import Controller.SessionManager;
+import Controller.AuthorizationManager;
+import Controller.UserContext;
+import Controller.InputValidator;
 
 public class Main {
     
     public SQLite sqlite;
+    private SessionManager sessionManager;
+    private AuthorizationManager authManager;
+    private UserContext userContext;
     
     public static void main(String[] args) {
         new Main().init();
     }
     
     public void init(){
+        // Initialize managers
+        sessionManager = SessionManager.getInstance();
+        authManager = AuthorizationManager.getInstance();
+        userContext = UserContext.getInstance();
+        
         // Initialize a driver object
         sqlite = new SQLite();
 
@@ -106,4 +117,112 @@ public class Main {
         frame.init(this);
     }
     
+    // Log user login
+    public void logLogin(String username, boolean success) {
+        String event = success ? "LOGIN" : "WARNING";
+        String desc = success ? "User login successful" : "Failed login attempt";
+        sqlite.addLogs(event, username, desc, new Timestamp(new Date().getTime()).toString());
+    }
+    
+    // Log user activity
+    public void logActivity(String event, String desc) {
+        User currentUser = userContext.getCurrentUser();
+        if (currentUser != null) {
+            sqlite.addLogs(event, currentUser.getUsername(), desc, new Timestamp(new Date().getTime()).toString());
+        } else {
+            sqlite.addLogs(event, "ANONYMOUS", desc, new Timestamp(new Date().getTime()).toString());
+        }
+    }
+    
+    // Authenticate user and create session
+    public boolean authenticate(String username, String password) {
+        if (username == null || password == null || username.trim().isEmpty() || password.trim().isEmpty()) {
+            return false;
+        }
+        
+        // Validate input
+        if (!InputValidator.isValidUsername(username)) {
+            logActivity("WARNING", "Invalid username format attempted: " + username);
+            return false;
+        }
+        
+        // Authenticate using the SQLite class
+        boolean authenticated = sqlite.authenticateUser(username, password);
+        
+        if (authenticated) {
+            // Get user details
+            ArrayList<User> users = sqlite.getUsers();
+            User authenticatedUser = null;
+            
+            for (User user : users) {
+                if (username.equals(user.getUsername())) {
+                    authenticatedUser = user;
+                    break;
+                }
+            }
+            
+            if (authenticatedUser != null) {
+                // Set the current user context
+                userContext.setCurrentUser(authenticatedUser);
+                logLogin(username, true);
+            } else {
+                authenticated = false;
+            }
+        } else {
+            logLogin(username, false);
+        }
+        
+        return authenticated;
+    }
+    
+    // Log out the current user
+    public void logout() {
+        User currentUser = userContext.getCurrentUser();
+        if (currentUser != null) {
+            logActivity("LOGOUT", "User logout");
+        }
+        
+        userContext.clearContext();
+    }
+    
+    // Get the current user
+    public User getCurrentUser() {
+        return userContext.getCurrentUser();
+    }
+    
+    // Check if the current user is authorized for an action
+    public boolean isAuthorized(String action) {
+        return userContext.isAuthorized(action);
+    }
+    
+    // Get home panel for the current user
+    public String getHomePanel() {
+        User currentUser = userContext.getCurrentUser();
+        return authManager.getHomePanel(currentUser);
+    }
+    
+    // Get filtered history for the current user (if client)
+    public ArrayList<History> getFilteredHistory() {
+        User currentUser = userContext.getCurrentUser();
+        if (currentUser == null) {
+            return new ArrayList<>();
+        }
+        
+        // If not a client, return all history
+        if (currentUser.getRole() > AuthorizationManager.ROLE_CLIENT) {
+            return sqlite.getHistory();
+        }
+        
+        // For clients, filter to only show their own history
+        ArrayList<History> allHistory = sqlite.getHistory();
+        ArrayList<History> filteredHistory = new ArrayList<>();
+        
+        for (History item : allHistory) {
+            if (item.getUsername().equals(currentUser.getUsername())) {
+                filteredHistory.add(item);
+            }
+        }
+        
+        return filteredHistory;
+    }
 }

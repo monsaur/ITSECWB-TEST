@@ -13,6 +13,11 @@ import javax.swing.JOptionPane;
 import javax.swing.JTextField;
 import javax.swing.table.DefaultTableModel;
 
+import Controller.AuthorizationManager;
+import Controller.UserContext;
+import Controller.InputValidator;
+import Model.User;
+
 /**
  *
  * @author beepxD
@@ -39,25 +44,43 @@ public class MgmtHistory extends javax.swing.JPanel {
 //        reportBtn.setVisible(false);
     }
 
-    public void init(){
-//      CLEAR TABLE
-        for(int nCtr = tableModel.getRowCount(); nCtr > 0; nCtr--){
+     public void init() {
+        // Clear table
+        for(int nCtr = tableModel.getRowCount(); nCtr > 0; nCtr--) {
             tableModel.removeRow(0);
         }
         
-//      LOAD CONTENTS
-        ArrayList<History> history = sqlite.getHistory();
-        for(int nCtr = 0; nCtr < history.size(); nCtr++){
-            Product product = sqlite.getProduct(history.get(nCtr).getName());
-            tableModel.addRow(new Object[]{
-                history.get(nCtr).getUsername(), 
-                history.get(nCtr).getName(), 
-                history.get(nCtr).getStock(), 
-                product.getPrice(), 
-                product.getPrice() * history.get(nCtr).getStock(), 
-                history.get(nCtr).getTimestamp()
-            });
+        // Get current user
+        User currentUser = UserContext.getInstance().getCurrentUser();
+        
+        // Load contents based on user role
+        if (currentUser != null && currentUser.getRole() == AuthorizationManager.ROLE_CLIENT) {
+            // Clients can only see their own history
+            ArrayList<History> history = sqlite.getHistoryForUser(currentUser.getUsername());
+            loadHistoryData(history);
+        } else {
+            // Staff, managers, and admins can see all history
+            ArrayList<History> history = sqlite.getHistory();
+            loadHistoryData(history);
         }
+        
+        // Apply authorization controls
+        applyAuthorization();
+    }
+    
+    public void applyAuthorization() {
+        User currentUser = UserContext.getInstance().getCurrentUser();
+        if (currentUser == null) {
+            return;
+        }
+        
+        int userRole = currentUser.getRole();
+        
+        // Search functionality is available to all users
+        searchBtn.setVisible(true);
+        
+        // Reload is available to all users
+        reloadBtn.setVisible(true);
     }
     
     public void designer(JTextField component, String text){
@@ -159,38 +182,52 @@ public class MgmtHistory extends javax.swing.JPanel {
     }// </editor-fold>//GEN-END:initComponents
 
     private void searchBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_searchBtnActionPerformed
-        JTextField searchFld = new JTextField("0");
+        JTextField searchFld = new JTextField("");
         designer(searchFld, "SEARCH USERNAME OR PRODUCT");
 
         Object[] message = {
             searchFld
         };
 
-        int result = JOptionPane.showConfirmDialog(null, message, "SEARCH HISTORY", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
+        int result = JOptionPane.showConfirmDialog(null, message, "SEARCH HISTORY", 
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
 
         if (result == JOptionPane.OK_OPTION) {
-//          CLEAR TABLE
-            for(int nCtr = tableModel.getRowCount(); nCtr > 0; nCtr--){
+            // Clear table
+            for(int nCtr = tableModel.getRowCount(); nCtr > 0; nCtr--) {
                 tableModel.removeRow(0);
             }
 
-//          LOAD CONTENTS
-            ArrayList<History> history = sqlite.getHistory();
-            for(int nCtr = 0; nCtr < history.size(); nCtr++){
-                if(searchFld.getText().contains(history.get(nCtr).getUsername()) || 
-                   history.get(nCtr).getUsername().contains(searchFld.getText()) || 
-                   searchFld.getText().contains(history.get(nCtr).getName()) || 
-                   history.get(nCtr).getName().contains(searchFld.getText())){
+            // Get current user
+            User currentUser = UserContext.getInstance().getCurrentUser();
+            
+            if (currentUser != null) {
+                String searchTerm = searchFld.getText().trim();
                 
-                    Product product = sqlite.getProduct(history.get(nCtr).getName());
-                    tableModel.addRow(new Object[]{
-                        history.get(nCtr).getUsername(), 
-                        history.get(nCtr).getName(), 
-                        history.get(nCtr).getStock(), 
-                        product.getPrice(), 
-                        product.getPrice() * history.get(nCtr).getStock(), 
-                        history.get(nCtr).getTimestamp()
-                    });
+                if (currentUser.getRole() == AuthorizationManager.ROLE_CLIENT) {
+                    // Clients can only search within their own history
+                    ArrayList<History> history = sqlite.getHistoryForUser(currentUser.getUsername());
+                    
+                    for(int nCtr = 0; nCtr < history.size(); nCtr++) {
+                        // Filter by product name only (clients can't search other usernames)
+                        if (history.get(nCtr).getName().toLowerCase().contains(searchTerm.toLowerCase())) {
+                            Product product = sqlite.getProduct(history.get(nCtr).getName());
+                            if (product != null) {
+                                tableModel.addRow(new Object[]{
+                                    history.get(nCtr).getUsername(), 
+                                    history.get(nCtr).getName(), 
+                                    history.get(nCtr).getStock(), 
+                                    product.getPrice(), 
+                                    product.getPrice() * history.get(nCtr).getStock(), 
+                                    history.get(nCtr).getTimestamp()
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    // Staff, managers, and admins can search all history
+                    ArrayList<History> history = sqlite.searchHistory(searchTerm);
+                    loadHistoryData(history);
                 }
             }
         }
@@ -200,6 +237,21 @@ public class MgmtHistory extends javax.swing.JPanel {
         init();
     }//GEN-LAST:event_reloadBtnActionPerformed
 
+    private void loadHistoryData(ArrayList<History> history) {
+        for(int nCtr = 0; nCtr < history.size(); nCtr++) {
+            Product product = sqlite.getProduct(history.get(nCtr).getName());
+            if (product != null) {
+                tableModel.addRow(new Object[]{
+                    history.get(nCtr).getUsername(), 
+                    history.get(nCtr).getName(), 
+                    history.get(nCtr).getStock(), 
+                    product.getPrice(), 
+                    product.getPrice() * history.get(nCtr).getStock(), 
+                    history.get(nCtr).getTimestamp()
+                });
+            }
+        }
+    }
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JScrollPane jScrollPane1;

@@ -12,7 +12,11 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.table.DefaultTableModel;
+import Model.User;
 
+import Controller.AuthorizationManager;
+import Controller.UserContext; 
+import Controller.InputValidator;
 /**
  *
  * @author beepxD
@@ -36,12 +40,12 @@ public class MgmtProduct extends javax.swing.JPanel {
     }
 
     public void init(){
-        //      CLEAR TABLE
+        // Clear table
         for(int nCtr = tableModel.getRowCount(); nCtr > 0; nCtr--){
             tableModel.removeRow(0);
         }
         
-//      LOAD CONTENTS
+        // Load contents
         ArrayList<Product> products = sqlite.getProduct();
         for(int nCtr = 0; nCtr < products.size(); nCtr++){
             tableModel.addRow(new Object[]{
@@ -49,6 +53,9 @@ public class MgmtProduct extends javax.swing.JPanel {
                 products.get(nCtr).getStock(), 
                 products.get(nCtr).getPrice()});
         }
+        
+        // Apply authorization controls
+        applyAuthorization();
     }
     
     public void designer(JTextField component, String text){
@@ -58,6 +65,28 @@ public class MgmtProduct extends javax.swing.JPanel {
         component.setHorizontalAlignment(javax.swing.JTextField.CENTER);
         component.setBorder(javax.swing.BorderFactory.createTitledBorder(new javax.swing.border.LineBorder(new java.awt.Color(0, 0, 0), 2, true), text, javax.swing.border.TitledBorder.CENTER, javax.swing.border.TitledBorder.DEFAULT_POSITION, new java.awt.Font("Tahoma", 0, 12)));
     }
+    
+    public void applyAuthorization() {
+        User currentUser = UserContext.getInstance().getCurrentUser();
+        if (currentUser == null) {
+            return;
+        }
+        
+        int userRole = currentUser.getRole();
+        
+        // Everyone can purchase products
+        purchaseBtn.setVisible(true);
+        
+        // Only managers and above can add products
+        addBtn.setVisible(userRole >= AuthorizationManager.ROLE_MANAGER);
+        
+        // Only managers and above can edit products
+        editBtn.setVisible(userRole >= AuthorizationManager.ROLE_MANAGER);
+        
+        // Only managers and above can delete products
+        deleteBtn.setVisible(userRole >= AuthorizationManager.ROLE_MANAGER);
+    }
+    
     
     /**
      * This method is called from within the constructor to initialize the form.
@@ -174,26 +203,81 @@ public class MgmtProduct extends javax.swing.JPanel {
     }// </editor-fold>//GEN-END:initComponents
 
     private void purchaseBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_purchaseBtnActionPerformed
+        if (!UserContext.getInstance().isAuthorized("PURCHASE_PRODUCTS")) {
+            JOptionPane.showMessageDialog(this, "You are not authorized to purchase products.", 
+                "Authorization Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
         if(table.getSelectedRow() >= 0){
-            JTextField stockFld = new JTextField("0");
-            designer(stockFld, "PRODUCT STOCK");
+            String productName = (String) tableModel.getValueAt(table.getSelectedRow(), 0);
+            int currentStock = (int) tableModel.getValueAt(table.getSelectedRow(), 1);
+            
+            if (currentStock <= 0) {
+                JOptionPane.showMessageDialog(this, "This product is out of stock.", 
+                    "Purchase Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
+            JTextField stockFld = new JTextField("1");
+            designer(stockFld, "PRODUCT QUANTITY");
 
             Object[] message = {
-                "How many " + tableModel.getValueAt(table.getSelectedRow(), 0) + " do you want to purchase?", stockFld
+                "How many " + productName + " do you want to purchase?", stockFld
             };
 
-            int result = JOptionPane.showConfirmDialog(null, message, "PURCHASE PRODUCT", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
+            int result = JOptionPane.showConfirmDialog(null, message, "PURCHASE PRODUCT", 
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
 
             if (result == JOptionPane.OK_OPTION) {
-                System.out.println(stockFld.getText());
+                String quantityStr = stockFld.getText();
+                
+                // Validate quantity
+                if (!InputValidator.isValidNumeric(quantityStr)) {
+                    JOptionPane.showMessageDialog(this, "Please enter a valid quantity.", 
+                        "Input Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
+                int quantity = Integer.parseInt(quantityStr);
+                
+                if (quantity <= 0) {
+                    JOptionPane.showMessageDialog(this, "Quantity must be greater than zero.", 
+                        "Input Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
+                if (quantity > currentStock) {
+                    JOptionPane.showMessageDialog(this, "Not enough stock available. Current stock: " + currentStock, 
+                        "Purchase Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
+                User currentUser = UserContext.getInstance().getCurrentUser();
+                if (currentUser != null) {
+                    if (sqlite.purchaseProduct(currentUser.getUsername(), productName, quantity)) {
+                        JOptionPane.showMessageDialog(this, "Purchase successful!", 
+                            "Success", JOptionPane.INFORMATION_MESSAGE);
+                        init(); // Refresh table
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Purchase failed. Please try again.", 
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
             }
         }
     }//GEN-LAST:event_purchaseBtnActionPerformed
 
     private void addBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_addBtnActionPerformed
+        if (!UserContext.getInstance().isAuthorized("ADD_PRODUCTS")) {
+            JOptionPane.showMessageDialog(this, "You are not authorized to add products.", 
+                "Authorization Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
         JTextField nameFld = new JTextField();
-        JTextField stockFld = new JTextField();
-        JTextField priceFld = new JTextField();
+        JTextField stockFld = new JTextField("0");
+        JTextField priceFld = new JTextField("0.00");
 
         designer(nameFld, "PRODUCT NAME");
         designer(stockFld, "PRODUCT STOCK");
@@ -203,45 +287,132 @@ public class MgmtProduct extends javax.swing.JPanel {
             "Insert New Product Details:", nameFld, stockFld, priceFld
         };
 
-        int result = JOptionPane.showConfirmDialog(null, message, "ADD PRODUCT", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
+        int result = JOptionPane.showConfirmDialog(null, message, "ADD PRODUCT", 
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
 
         if (result == JOptionPane.OK_OPTION) {
-            System.out.println(nameFld.getText());
-            System.out.println(stockFld.getText());
-            System.out.println(priceFld.getText());
+            String name = nameFld.getText();
+            String stockStr = stockFld.getText();
+            String priceStr = priceFld.getText();
+            
+            // Validate inputs
+            if (!InputValidator.isValidProductName(name)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid product name (2-50 characters).", 
+                    "Input Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
+            if (!InputValidator.isValidNumeric(stockStr)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid stock quantity.", 
+                    "Input Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
+            if (!InputValidator.isValidPrice(priceStr)) {
+                JOptionPane.showMessageDialog(this, "Please enter a valid price.", 
+                    "Input Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
+            int stock = Integer.parseInt(stockStr);
+            double price = Double.parseDouble(priceStr);
+            
+            if (sqlite.addProduct(name, stock, price)) {
+                JOptionPane.showMessageDialog(this, "Product added successfully!", 
+                    "Success", JOptionPane.INFORMATION_MESSAGE);
+                init(); // Refresh table
+            } else {
+                JOptionPane.showMessageDialog(this, "Failed to add product. It may already exist.", 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            }
         }
     }//GEN-LAST:event_addBtnActionPerformed
 
     private void editBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_editBtnActionPerformed
+        if (!UserContext.getInstance().isAuthorized("EDIT_PRODUCTS")) {
+            JOptionPane.showMessageDialog(this, "You are not authorized to edit products.", 
+                "Authorization Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
         if(table.getSelectedRow() >= 0){
-            JTextField nameFld = new JTextField(tableModel.getValueAt(table.getSelectedRow(), 0) + "");
-            JTextField stockFld = new JTextField(tableModel.getValueAt(table.getSelectedRow(), 1) + "");
-            JTextField priceFld = new JTextField(tableModel.getValueAt(table.getSelectedRow(), 2) + "");
+            String name = (String) tableModel.getValueAt(table.getSelectedRow(), 0);
+            String currentStock = tableModel.getValueAt(table.getSelectedRow(), 1).toString();
+            String currentPrice = tableModel.getValueAt(table.getSelectedRow(), 2).toString();
+            
+            JTextField nameFld = new JTextField(name);
+            JTextField stockFld = new JTextField(currentStock);
+            JTextField priceFld = new JTextField(currentPrice);
 
             designer(nameFld, "PRODUCT NAME");
             designer(stockFld, "PRODUCT STOCK");
             designer(priceFld, "PRODUCT PRICE");
+            
+            // Make name field non-editable (primary key)
+            nameFld.setEditable(false);
 
             Object[] message = {
                 "Edit Product Details:", nameFld, stockFld, priceFld
             };
 
-            int result = JOptionPane.showConfirmDialog(null, message, "EDIT PRODUCT", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
+            int result = JOptionPane.showConfirmDialog(null, message, "EDIT PRODUCT", 
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
 
             if (result == JOptionPane.OK_OPTION) {
-                System.out.println(nameFld.getText());
-                System.out.println(stockFld.getText());
-                System.out.println(priceFld.getText());
+                String stockStr = stockFld.getText();
+                String priceStr = priceFld.getText();
+                
+                // Validate inputs
+                if (!InputValidator.isValidNumeric(stockStr)) {
+                    JOptionPane.showMessageDialog(this, "Please enter a valid stock quantity.", 
+                        "Input Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
+                if (!InputValidator.isValidPrice(priceStr)) {
+                    JOptionPane.showMessageDialog(this, "Please enter a valid price.", 
+                        "Input Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
+                int stock = Integer.parseInt(stockStr);
+                double price = Double.parseDouble(priceStr);
+                
+                if (sqlite.updateProduct(name, stock, price)) {
+                    JOptionPane.showMessageDialog(this, "Product updated successfully!", 
+                        "Success", JOptionPane.INFORMATION_MESSAGE);
+                    init(); // Refresh table
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to update product.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
             }
         }
     }//GEN-LAST:event_editBtnActionPerformed
 
     private void deleteBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_deleteBtnActionPerformed
+        if (!UserContext.getInstance().isAuthorized("EDIT_PRODUCTS")) {
+            JOptionPane.showMessageDialog(this, "You are not authorized to delete products.", 
+                "Authorization Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
         if(table.getSelectedRow() >= 0){
-            int result = JOptionPane.showConfirmDialog(null, "Are you sure you want to delete " + tableModel.getValueAt(table.getSelectedRow(), 0) + "?", "DELETE PRODUCT", JOptionPane.YES_NO_OPTION);
+            String name = (String) tableModel.getValueAt(table.getSelectedRow(), 0);
+            
+            int result = JOptionPane.showConfirmDialog(null, 
+                "Are you sure you want to delete " + name + "?", 
+                "DELETE PRODUCT", JOptionPane.YES_NO_OPTION);
             
             if (result == JOptionPane.YES_OPTION) {
-                System.out.println(tableModel.getValueAt(table.getSelectedRow(), 0));
+                if (sqlite.deleteProduct(name)) {
+                    JOptionPane.showMessageDialog(this, "Product deleted successfully!", 
+                        "Success", JOptionPane.INFORMATION_MESSAGE);
+                    init(); // Refresh table
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to delete product.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
             }
         }
     }//GEN-LAST:event_deleteBtnActionPerformed

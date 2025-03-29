@@ -6,6 +6,11 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import javax.swing.WindowConstants;
 
+import Controller.AuthorizationManager;
+import Controller.UserContext;
+import Controller.InputValidator;
+import Model.User;
+
 public class Frame extends javax.swing.JFrame {
 
     public Frame() {
@@ -180,26 +185,35 @@ public class Frame extends javax.swing.JFrame {
     }// </editor-fold>//GEN-END:initComponents
 
     private void adminBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_adminBtnActionPerformed
-        adminHomePnl.showPnl("home");
-        contentView.show(Content, "adminHomePnl");
+        if (main.isAuthorized("VIEW_ADMIN_PANEL")) {
+            adminHomePnl.showPnl("home");
+            contentView.show(Content, "adminHomePnl");
+        }
     }//GEN-LAST:event_adminBtnActionPerformed
 
     private void managerBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_managerBtnActionPerformed
-        managerHomePnl.showPnl("home");
-        contentView.show(Content, "managerHomePnl");
+        if (main.isAuthorized("VIEW_MANAGER_PANEL")) {
+            managerHomePnl.showPnl("home");
+            contentView.show(Content, "managerHomePnl");
+        }
     }//GEN-LAST:event_managerBtnActionPerformed
 
     private void staffBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_staffBtnActionPerformed
-        staffHomePnl.showPnl("home");
-        contentView.show(Content, "staffHomePnl");
+        if (main.isAuthorized("VIEW_STAFF_PANEL")) {
+            staffHomePnl.showPnl("home");
+            contentView.show(Content, "staffHomePnl");
+        }
     }//GEN-LAST:event_staffBtnActionPerformed
 
     private void clientBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_clientBtnActionPerformed
-        clientHomePnl.showPnl("home");
-        contentView.show(Content, "clientHomePnl");
+        if (main.isAuthorized("VIEW_CLIENT_PANEL")) {
+            clientHomePnl.showPnl("home");
+            contentView.show(Content, "clientHomePnl");
+        }
     }//GEN-LAST:event_clientBtnActionPerformed
 
     private void logoutBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_logoutBtnActionPerformed
+        main.logout();
         frameView.show(Container, "loginPnl");
     }//GEN-LAST:event_logoutBtnActionPerformed
 
@@ -215,7 +229,7 @@ public class Frame extends javax.swing.JFrame {
     private CardLayout contentView = new CardLayout();
     private CardLayout frameView = new CardLayout();
     
-    public void init(Main controller){
+    public void init(Main controller) {
         this.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         this.setTitle("CSSECDV - SECURITY Svcs");
         this.setLocationRelativeTo(null);
@@ -244,7 +258,46 @@ public class Frame extends javax.swing.JFrame {
         this.setVisible(true);
     }
     
-    public void mainNav(){
+    public void handleLogin(String username, String password) {
+        if (main.authenticate(username, password)) {
+            updateNavigationBasedOnRole();
+            mainNav();
+        } else {
+            // Login failed, stay on login page
+            // (The actual error message is shown by the Login panel)
+        }
+    }
+    
+    // Method to update navigation buttons based on current user's role
+    public void updateNavigationBasedOnRole() {
+        User currentUser = main.getCurrentUser();
+        
+        if (currentUser == null) {
+            // No user logged in, hide all role-specific buttons
+            adminBtn.setVisible(false);
+            managerBtn.setVisible(false);
+            staffBtn.setVisible(false);
+            clientBtn.setVisible(false);
+            return;
+        }
+        
+        int role = currentUser.getRole();
+        
+        // Show/hide navigation buttons based on role
+        adminBtn.setVisible(role >= AuthorizationManager.ROLE_ADMIN);
+        managerBtn.setVisible(role >= AuthorizationManager.ROLE_MANAGER);
+        staffBtn.setVisible(role >= AuthorizationManager.ROLE_STAFF);
+        clientBtn.setVisible(role >= AuthorizationManager.ROLE_CLIENT);
+        
+        // Select appropriate default panel based on role
+        String panelName = main.getHomePanel();
+        frameView.show(Container, "homePnl");
+        contentView.show(Content, panelName);
+    }
+    
+    
+    public void mainNav() {
+        updateNavigationBasedOnRole();
         frameView.show(Container, "homePnl");
     }
     
@@ -257,7 +310,15 @@ public class Frame extends javax.swing.JFrame {
     }
     
     public boolean registerAction(String username, String password, String confpass) {
-        // Additional validation can be done here
+        // Additional validation
+        if (!InputValidator.isValidUsername(username)) {
+            return false;
+        }
+        
+        if (!InputValidator.isValidPassword(password)) {
+            return false;
+        }
+        
         if (!password.equals(confpass)) {
             return false;
         }

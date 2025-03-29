@@ -2,6 +2,7 @@
 package View;
 import Controller.SQLite;  
 import javax.swing.JOptionPane;  
+import Controller.InputValidator;
 
 public class Login extends javax.swing.JPanel {
 
@@ -9,6 +10,11 @@ public class Login extends javax.swing.JPanel {
     
     public Login() {
         initComponents();
+    }
+    
+    public void clearFields() {
+        usernameFld.setText("");
+        passwordFld.setText("");
     }
     
 
@@ -86,26 +92,37 @@ public class Login extends javax.swing.JPanel {
         );
     }// </editor-fold>//GEN-END:initComponents
     private void loginBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_loginBtnActionPerformed
-        //frame.mainNav();
         String username = usernameFld.getText().trim();
         String password = passwordFld.getText().trim(); 
     
         if (username.isEmpty() || password.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Username and password cannot be empty!", "Login Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, 
+                "Username and password cannot be empty!", 
+                "Login Error", 
+                JOptionPane.ERROR_MESSAGE);
             return;  
+        }
+
+        // Validate username format
+        if (!InputValidator.isValidUsername(username)) {
+            JOptionPane.showMessageDialog(this, 
+                "Invalid username format.", 
+                "Login Error", 
+                JOptionPane.ERROR_MESSAGE);
+            return;
         }
 
         SQLite sqlite = new SQLite();
 
         if (sqlite.isAccountLocked(username)) {
-            JOptionPane.showMessageDialog(this, "Too many failed attempts! Account locked.", "Account Locked", JOptionPane.ERROR_MESSAGE);
-        } else if (sqlite.authenticateUser(username, password)) {
-            JOptionPane.showMessageDialog(this, "Login successful!", "Success", JOptionPane.INFORMATION_MESSAGE);
-            frame.mainNav(); 
+            JOptionPane.showMessageDialog(this, 
+                "Your account has been locked due to multiple failed attempts.\nPlease contact an administrator.", 
+                "Account Locked", 
+                JOptionPane.ERROR_MESSAGE);
         } else {
-            JOptionPane.showMessageDialog(this, "Invalid username or password!", "Login Failed", JOptionPane.ERROR_MESSAGE);
+            // Use the Frame's handleLogin method to process the login
+            frame.handleLogin(username, password);
         }
-        
     }//GEN-LAST:event_loginBtnActionPerformed
 
     private void registerBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_registerBtnActionPerformed

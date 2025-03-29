@@ -9,6 +9,11 @@ import Controller.SQLite;
 import Model.Logs;
 import java.util.ArrayList;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.JOptionPane;
+
+import Controller.AuthorizationManager;
+import Controller.UserContext;
+import Model.User;
 
 /**
  *
@@ -30,21 +35,39 @@ public class MgmtLogs extends javax.swing.JPanel {
 //        debugBtn.setVisible(false);
     }
 
-    public void init(){
-        //      CLEAR TABLE
-        for(int nCtr = tableModel.getRowCount(); nCtr > 0; nCtr--){
+    public void init() {
+        // Clear table
+        for(int nCtr = tableModel.getRowCount(); nCtr > 0; nCtr--) {
             tableModel.removeRow(0);
         }
         
-//      LOAD CONTENTS
+        // Load contents
         ArrayList<Logs> logs = sqlite.getLogs();
-        for(int nCtr = 0; nCtr < logs.size(); nCtr++){
+        for(int nCtr = 0; nCtr < logs.size(); nCtr++) {
             tableModel.addRow(new Object[]{
                 logs.get(nCtr).getEvent(), 
                 logs.get(nCtr).getUsername(), 
                 logs.get(nCtr).getDesc(), 
                 logs.get(nCtr).getTimestamp()});
         }
+        
+        // Apply authorization controls
+        applyAuthorization();
+    }
+    
+    public void applyAuthorization() {
+        User currentUser = UserContext.getInstance().getCurrentUser();
+        if (currentUser == null) {
+            return;
+        }
+        
+        int userRole = currentUser.getRole();
+        
+        // Only admins can clear logs
+        clearBtn.setVisible(userRole >= AuthorizationManager.ROLE_ADMIN);
+        
+        // Only admins can toggle debug mode
+        debugBtn.setVisible(userRole >= AuthorizationManager.ROLE_ADMIN);
     }
     /**
      * This method is called from within the constructor to initialize the form.
@@ -139,10 +162,21 @@ public class MgmtLogs extends javax.swing.JPanel {
     }//GEN-LAST:event_clearBtnActionPerformed
 
     private void debugBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_debugBtnActionPerformed
-        if(sqlite.DEBUG_MODE == 1)
+         if (!UserContext.getInstance().isAuthorized("TOGGLE_DEBUG_MODE")) {
+            JOptionPane.showMessageDialog(this, "You are not authorized to toggle debug mode.", 
+                "Authorization Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
+        if(sqlite.DEBUG_MODE == 1) {
             sqlite.DEBUG_MODE = 0;
-        else
+            JOptionPane.showMessageDialog(this, "Debug mode disabled.", 
+                "Debug Mode", JOptionPane.INFORMATION_MESSAGE);
+        } else {
             sqlite.DEBUG_MODE = 1;
+            JOptionPane.showMessageDialog(this, "Debug mode enabled.", 
+                "Debug Mode", JOptionPane.INFORMATION_MESSAGE);
+        }
     }//GEN-LAST:event_debugBtnActionPerformed
 
 

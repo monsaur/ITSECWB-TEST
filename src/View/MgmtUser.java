@@ -16,6 +16,10 @@ import javax.swing.JPasswordField;
 import javax.swing.JTextField;
 import javax.swing.table.DefaultTableModel;
 
+import Controller.AuthorizationManager; 
+import Controller.UserContext;
+import Controller.InputValidator;
+
 /**
  *
  * @author beepxD
@@ -61,6 +65,27 @@ public class MgmtUser extends javax.swing.JPanel {
         component.setBackground(new java.awt.Color(240, 240, 240));
         component.setHorizontalAlignment(javax.swing.JTextField.CENTER);
         component.setBorder(javax.swing.BorderFactory.createTitledBorder(new javax.swing.border.LineBorder(new java.awt.Color(0, 0, 0), 2, true), text, javax.swing.border.TitledBorder.CENTER, javax.swing.border.TitledBorder.DEFAULT_POSITION, new java.awt.Font("Tahoma", 0, 12)));
+    }
+    
+    public void applyAuthorization() {
+        User currentUser = UserContext.getInstance().getCurrentUser();
+        if (currentUser == null) {
+            return;
+        }
+        
+        int userRole = currentUser.getRole();
+        
+        // Only admins can edit roles
+        editRoleBtn.setVisible(userRole >= AuthorizationManager.ROLE_ADMIN);
+        
+        // Only admins can delete users
+        deleteBtn.setVisible(userRole >= AuthorizationManager.ROLE_ADMIN);
+        
+        // Only admins can lock/unlock accounts
+        lockBtn.setVisible(userRole >= AuthorizationManager.ROLE_ADMIN);
+        
+        // Only admins can change passwords (except users can change their own)
+        chgpassBtn.setVisible(userRole >= AuthorizationManager.ROLE_ADMIN);
     }
     
     /**
@@ -179,49 +204,129 @@ public class MgmtUser extends javax.swing.JPanel {
     }// </editor-fold>//GEN-END:initComponents
 
     private void editRoleBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_editRoleBtnActionPerformed
-        if(table.getSelectedRow() >= 0){
+        if (!UserContext.getInstance().isAuthorized("EDIT_ROLES")) {
+            JOptionPane.showMessageDialog(this, "You are not authorized to edit user roles.", 
+                "Authorization Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
+        if(table.getSelectedRow() >= 0) {
+            String username = (String) tableModel.getValueAt(table.getSelectedRow(), 0);
+            
+            // Don't allow changing your own role
+            if (username.equals(UserContext.getInstance().getCurrentUser().getUsername())) {
+                JOptionPane.showMessageDialog(this, "You cannot change your own role.", 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
             String[] options = {"1-DISABLED","2-CLIENT","3-STAFF","4-MANAGER","5-ADMIN"};
             JComboBox optionList = new JComboBox(options);
             
             optionList.setSelectedIndex((int)tableModel.getValueAt(table.getSelectedRow(), 2) - 1);
             
-            String result = (String) JOptionPane.showInputDialog(null, "USER: " + tableModel.getValueAt(table.getSelectedRow(), 0), 
-                "EDIT USER ROLE", JOptionPane.QUESTION_MESSAGE, null, options, options[(int)tableModel.getValueAt(table.getSelectedRow(), 2) - 1]);
+            String result = (String) JOptionPane.showInputDialog(null, "USER: " + username, 
+                "EDIT USER ROLE", JOptionPane.QUESTION_MESSAGE, null, options, 
+                options[(int)tableModel.getValueAt(table.getSelectedRow(), 2) - 1]);
             
-            if(result != null){
-                System.out.println(tableModel.getValueAt(table.getSelectedRow(), 0));
-                System.out.println(result.charAt(0));
+            if(result != null) {
+                int newRole = Character.getNumericValue(result.charAt(0));
+                
+                if (sqlite.updateUserRole(username, newRole)) {
+                    JOptionPane.showMessageDialog(this, "User role updated successfully.", 
+                        "Success", JOptionPane.INFORMATION_MESSAGE);
+                    init(); // Refresh table
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to update user role.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
             }
         }
     }//GEN-LAST:event_editRoleBtnActionPerformed
 
     private void deleteBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_deleteBtnActionPerformed
-        if(table.getSelectedRow() >= 0){
-            int result = JOptionPane.showConfirmDialog(null, "Are you sure you want to delete " + tableModel.getValueAt(table.getSelectedRow(), 0) + "?", "DELETE USER", JOptionPane.YES_NO_OPTION);
+         if (!UserContext.getInstance().isAuthorized("DELETE_USERS")) {
+            JOptionPane.showMessageDialog(this, "You are not authorized to delete users.", 
+                "Authorization Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
+        if(table.getSelectedRow() >= 0) {
+            String username = (String) tableModel.getValueAt(table.getSelectedRow(), 0);
+            
+            // Don't allow deleting yourself
+            if (username.equals(UserContext.getInstance().getCurrentUser().getUsername())) {
+                JOptionPane.showMessageDialog(this, "You cannot delete your own account.", 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
+            int result = JOptionPane.showConfirmDialog(null, 
+                "Are you sure you want to delete " + username + "?", 
+                "DELETE USER", JOptionPane.YES_NO_OPTION);
             
             if (result == JOptionPane.YES_OPTION) {
-                System.out.println(tableModel.getValueAt(table.getSelectedRow(), 0));
+                if (sqlite.removeUser(username)) {
+                    JOptionPane.showMessageDialog(this, "User deleted successfully.", 
+                        "Success", JOptionPane.INFORMATION_MESSAGE);
+                    init(); // Refresh table
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to delete user.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
             }
         }
     }//GEN-LAST:event_deleteBtnActionPerformed
 
     private void lockBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_lockBtnActionPerformed
-        if(table.getSelectedRow() >= 0){
+        if (!UserContext.getInstance().isAuthorized("LOCK_UNLOCK_USERS")) {
+            JOptionPane.showMessageDialog(this, "You are not authorized to lock/unlock user accounts.", 
+                "Authorization Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
+        if(table.getSelectedRow() >= 0) {
+            String username = (String) tableModel.getValueAt(table.getSelectedRow(), 0);
+            
+            // Don't allow locking yourself
+            if (username.equals(UserContext.getInstance().getCurrentUser().getUsername())) {
+                JOptionPane.showMessageDialog(this, "You cannot lock your own account.", 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
             String state = "lock";
-            if("1".equals(tableModel.getValueAt(table.getSelectedRow(), 3) + "")){
+            if("1".equals(tableModel.getValueAt(table.getSelectedRow(), 3) + "")) {
                 state = "unlock";
             }
             
-            int result = JOptionPane.showConfirmDialog(null, "Are you sure you want to " + state + " " + tableModel.getValueAt(table.getSelectedRow(), 0) + "?", "DELETE USER", JOptionPane.YES_NO_OPTION);
+            int result = JOptionPane.showConfirmDialog(null, 
+                "Are you sure you want to " + state + " " + username + "?", 
+                "LOCK/UNLOCK USER", JOptionPane.YES_NO_OPTION);
             
             if (result == JOptionPane.YES_OPTION) {
-                System.out.println(tableModel.getValueAt(table.getSelectedRow(), 0));
+                if (sqlite.toggleUserLock(username)) {
+                    JOptionPane.showMessageDialog(this, "User account " + state + "ed successfully.", 
+                        "Success", JOptionPane.INFORMATION_MESSAGE);
+                    init(); // Refresh table
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to " + state + " user account.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
             }
         }
     }//GEN-LAST:event_lockBtnActionPerformed
 
     private void chgpassBtnActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_chgpassBtnActionPerformed
-        if(table.getSelectedRow() >= 0){
+        if (!UserContext.getInstance().isAuthorized("CHANGE_USER_PASSWORD")) {
+            JOptionPane.showMessageDialog(this, "You are not authorized to change user passwords.", 
+                "Authorization Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
+        if(table.getSelectedRow() >= 0) {
+            String username = (String) tableModel.getValueAt(table.getSelectedRow(), 0);
+            
             JTextField password = new JPasswordField();
             JTextField confpass = new JPasswordField();
             designer(password, "PASSWORD");
@@ -231,11 +336,38 @@ public class MgmtUser extends javax.swing.JPanel {
                 "Enter New Password:", password, confpass
             };
 
-            int result = JOptionPane.showConfirmDialog(null, message, "CHANGE PASSWORD", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
+            int result = JOptionPane.showConfirmDialog(null, message, "CHANGE PASSWORD", 
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);
             
             if (result == JOptionPane.OK_OPTION) {
-                System.out.println(password.getText());
-                System.out.println(confpass.getText());
+                String newPassword = password.getText();
+                String confirmPassword = confpass.getText();
+                
+                // Validate password
+                if (!InputValidator.isValidPassword(newPassword)) {
+                    JOptionPane.showMessageDialog(this, 
+                        "Password must be 8-64 characters and include at least:\n" +
+                        "- One uppercase letter\n" +
+                        "- One lowercase letter\n" +
+                        "- One digit", 
+                        "Invalid Password", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
+                // Check if passwords match
+                if (!newPassword.equals(confirmPassword)) {
+                    JOptionPane.showMessageDialog(this, "Passwords do not match!", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
+                if (sqlite.changePassword(username, newPassword)) {
+                    JOptionPane.showMessageDialog(this, "Password changed successfully.", 
+                        "Success", JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to change password.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
             }
         }
     }//GEN-LAST:event_chgpassBtnActionPerformed
